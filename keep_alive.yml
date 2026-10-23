@@ -34,7 +34,7 @@ jobs:
               const browser = await chromium.launch({ headless: true });
               const page = await browser.newPage();
               console.log('Iniciando navegación...');
-              await page.goto('https://lecturas-hes.streamlit.app/', { 
+              await page.goto('https://miaa-tanques.streamlit.app', { 
                 waitUntil: 'networkidle', 
                 timeout: 60000 
               });
