@@ -1,4 +1,4 @@
-"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Corregida SQL)"""
+"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Definitiva vfitagnumhistory)"""
 
 from dataclasses import dataclass
 from html import escape
@@ -88,23 +88,8 @@ def fetch_tank_readings(
     if not scada_tags:
         return pd.DataFrame(columns=["timestamp", "tank_id", "level_m"])
 
-    tags_list = list(scada_tags.values())
-    tags_string = "','".join(tags_list)
     tag_to_tank = {v: k for k, v in scada_tags.items()}
-
-    # Consulta ajustada utilizando TagNum o el ID de referencia correspondiente en VfiTagRef
-    query = f"""
-        SELECT 
-            FROM_UNIXTIME(h.Time / 1000) AS timestamp,
-            t.NAME AS tag_name,
-            h.Value AS level_m
-        FROM vfitagnumhistory h
-        JOIN VfiTagRef t ON h.TagNum = t.GATEID
-        WHERE t.NAME IN ('{tags_string}')
-          AND h.Time >= UNIX_TIMESTAMP(%s) * 1000
-          AND h.Time <= UNIX_TIMESTAMP(%s) * 1000
-        ORDER BY h.Time ASC;
-    """
+    tags_list = list(scada_tags.values())
 
     connection = pymysql.connect(
         host=config.host,
@@ -116,9 +101,36 @@ def fetch_tank_readings(
         cursorclass=pymysql.cursors.DictCursor,
     )
     try:
+        # Paso 1: Obtenemos los GATEID correspondientes a los nombres de las etiquetas
+        tags_string = "','".join(tags_list)
+        ref_query = f"SELECT GATEID, NAME FROM VfiTagRef WHERE NAME IN ('{tags_string}');"
+
         with connection.cursor() as cursor:
-            # Primero intentamos con TagNum, si tu estructura usa otra columna (ej. id o tagid), se adaptará.
-            cursor.execute(query, (start_date, end_date))
+            cursor.execute(ref_query)
+            tag_refs = cursor.fetchall()
+
+        if not tag_refs:
+            return pd.DataFrame(columns=["timestamp", "tank_id", "level_m"])
+
+        gateid_to_name = {row["GATEID"]: row["NAME"] for row in tag_refs}
+        gateids = list(gateid_to_name.keys())
+        gateids_str = ",".join([str(g) for g in gateids])
+
+        # Paso 2: Consultamos la tabla histórica correcta (vfitagnumhistory)
+        history_query = f"""
+            SELECT 
+                FROM_UNIXTIME(Time / 1000) AS timestamp,
+                TagNum AS gateid,
+                Value AS level_m
+            FROM vfitagnumhistory
+            WHERE TagNum IN ({gateids_str})
+              AND Time >= UNIX_TIMESTAMP(%s) * 1000
+              AND Time <= UNIX_TIMESTAMP(%s) * 1000
+            ORDER BY Time ASC;
+        """
+
+        with connection.cursor() as cursor:
+            cursor.execute(history_query, (start_date, end_date))
             result = cursor.fetchall()
 
         if not result:
@@ -126,40 +138,11 @@ def fetch_tank_readings(
 
         df = pd.DataFrame(result)
         df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["tag_name"] = df["gateid"].map(gateid_to_name)
         df["tank_id"] = df["tag_name"].map(tag_to_tank)
-        return df[["timestamp", "tank_id", "level_m"]]
-    except Exception as e:
-        # Fallback alternativo por si la relación de la tabla histórica usa otro nombre de columna común
-        LOGGER.warning(
-            f"Fallo el query principal con TagNum, intentando alternativa: {e}"
-        )
-        try:
-            query_alt = f"""
-                SELECT 
-                    FROM_UNIXTIME(h.Time / 1000) AS timestamp,
-                    t.NAME AS tag_name,
-                    h.Value AS level_m
-                FROM 12vfitagnumhistory h
-                JOIN VfiTagRef t ON h.TagId = t.GATEID
-                WHERE t.NAME IN ('{tags_string}')
-                  AND h.Time >= UNIX_TIMESTAMP(%s) * 1000
-                  AND h.Time <= UNIX_TIMESTAMP(%s) * 1000
-                ORDER BY h.Time ASC;
-            """
-            with connection.cursor() as cursor:
-                cursor.execute(query_alt, (start_date, end_date))
-                result = cursor.fetchall()
 
-            if not result:
-                return pd.DataFrame(columns=["timestamp", "tank_id", "level_m"])
+        return df[["timestamp", "tank_id", "level_m"]].dropna(subset=["tank_id"])
 
-            df = pd.DataFrame(result)
-            df["timestamp"] = pd.to_datetime(df["timestamp"])
-            df["tank_id"] = df["tag_name"].map(tag_to_tank)
-            return df[["timestamp", "tank_id", "level_m"]]
-        except Exception as ex:
-            LOGGER.error(f"Error definitivo en fetch_tank_readings: {ex}")
-            raise ex
     finally:
         connection.close()
 
