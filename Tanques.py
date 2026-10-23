@@ -1,9 +1,8 @@
-"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Unificada)"""
+"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Unificada con st.secrets)"""
 
 from dataclasses import dataclass
 from html import escape
 import logging
-from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -31,21 +30,6 @@ MIN_COMMUNICATION_PCT = 5
 logging.basicConfig(level=logging.INFO)
 LOGGER = logging.getLogger(__name__)
 
-# Credenciales de bases de datos proporcionadas
-SCADA_CONFIG = {
-    "host": "miaa.mx",
-    "database": "miaamx_telemetria",
-    "user": "miaamx_dashboard",
-    "password": "h97_p,NQPo=l",
-}
-
-HYD_CONFIG = {
-    "host": "miaa.mx",
-    "database": "miaamx_telemetria2",
-    "user": "miaamx_telemetria2",
-    "password": "bWkrw1Uum1O&",
-}
-
 
 @dataclass
 class MySQLConfig:
@@ -56,12 +40,21 @@ class MySQLConfig:
     port: int = 3306
 
     @classmethod
-    def from_dict(cls, d: dict) -> "MySQLConfig":
-        return cls(**d)
+    def from_secrets(cls, secret_key: str) -> "MySQLConfig":
+        """Carga las credenciales desde st.secrets dinámicamente."""
+        if secret_key not in st.secrets:
+            raise KeyError(
+                f"No se encontró la sección [{secret_key}] en st.secrets."
+            )
+        sec = st.secrets[secret_key]
+        return cls(
+            host=sec["host"],
+            database=sec["database"],
+            user=sec["user"],
+            password=sec["password"],
+            port=int(sec.get("port", 3306)),
+        )
 
-
-scada_config = MySQLConfig.from_dict(SCADA_CONFIG)
-hyd_db_config = MySQLConfig.from_dict(HYD_CONFIG)
 
 # =====================================================================
 # CAPA DE ACCESO A DATOS (Data Access Layer)
@@ -144,7 +137,13 @@ def fetch_tank_readings(
         connection.close()
 
 
-def get_tank_level_data(hyd_db_config, scada_config, start_date, end_date, ntanks=None):
+def get_tank_level_data(
+    hyd_db_config: MySQLConfig,
+    scada_config: MySQLConfig,
+    start_date: pd.Timestamp,
+    end_date: pd.Timestamp,
+    ntanks: int | None = None,
+):
     """Devuelve las lecturas SCADA y el catálogo de tanques seleccionados."""
     df = fetch_mysql_table(config=hyd_db_config, table="Diccionario_de_tanques")
     df_selected = df.copy()
@@ -199,7 +198,7 @@ def get_tank_level_data(hyd_db_config, scada_config, start_date, end_date, ntank
 
 
 # =====================================================================
-# ESTILOS CSS INCORPORADOS (styles.css)
+# ESTILOS CSS INCORPORADOS
 # =====================================================================
 
 CUSTOM_CSS = """
@@ -352,7 +351,7 @@ CUSTOM_CSS = """
 """
 
 # =====================================================================
-# COMPONENTES Y LÓGICA DE VISUALIZACIÓN (monitoring.py)
+# COMPONENTES Y LÓGICA DE VISUALIZACIÓN
 # =====================================================================
 
 LEVEL_CHART_STYLE = {
@@ -551,7 +550,9 @@ def _summarize(
     summary["communication_pct"] = (
         100 * summary["received_readings"] / summary["expected_readings"]
     )
-    summary["communication_ok"] = summary["communication_pct"].ge(min_communication_pct)
+    summary["communication_ok"] = summary["communication_pct"].ge(
+        min_communication_pct
+    )
 
     return summary
 
@@ -720,7 +721,9 @@ def _render_tank(
 
     timestamp = tank["timestamp"]
     if pd.notna(timestamp):
-        elapsed_minutes = max(0, int((end - timestamp).total_seconds() / 60 + 0.5))
+        elapsed_minutes = max(
+            0, int((end - timestamp).total_seconds() / 60 + 0.5)
+        )
         days, rem = divmod(elapsed_minutes, 1440)
         hours, minutes = divmod(rem, 60)
         parts = []
@@ -755,14 +758,17 @@ def render_monitoring(
 
         st.html(CUSTOM_CSS)
 
-        period = _render_filters(data, key, catalog, available_start, available_end)
+        period = _render_filters(
+            data, key, catalog, available_start, available_end
+        )
         if period is None:
             return None
 
         start, end, category = period
         catalog = catalog.loc[catalog[CATEGORY_COLUMN].eq(category)].copy()
         filtered = data.loc[
-            data["timestamp"].between(start, end) & data["tank_id"].isin(catalog.index)
+            data["timestamp"].between(start, end)
+            & data["tank_id"].isin(catalog.index)
         ].copy()
 
         summary = _summarize(
@@ -811,13 +817,19 @@ def render_monitoring(
 # =====================================================================
 
 
-@st.cache_data(ttl=CACHE_TTL_SECONDS, max_entries=CACHE_MAX_ENTRIES, show_spinner=False)
+@st.cache_data(
+    ttl=CACHE_TTL_SECONDS, max_entries=CACHE_MAX_ENTRIES, show_spinner=False
+)
 def load_cached_data(
     start_date: pd.Timestamp, end_date: pd.Timestamp, ntanks: int | None
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    # Lectura dinámica de secretos
+    scada_cfg = MySQLConfig.from_secrets("SCADA_DB")
+    hyd_cfg = MySQLConfig.from_secrets("HYD_DB")
+
     return get_tank_level_data(
-        hyd_db_config=hyd_db_config,
-        scada_config=scada_config,
+        hyd_db_config=hyd_cfg,
+        scada_config=scada_cfg,
         start_date=start_date,
         end_date=end_date,
         ntanks=ntanks,
@@ -850,7 +862,9 @@ def render_live_monitoring():
             )
 
             with st.spinner("Cargando lecturas..."):
-                new_readings, tanks = load_cached_data(query_start, cutoff, None)
+                new_readings, tanks = load_cached_data(
+                    query_start, cutoff, None
+                )
 
                 if dataset is None:
                     readings = new_readings.copy()
@@ -904,7 +918,9 @@ def main():
         layout="wide",
     )
 
-    st.html("<style>.stMainBlockContainer { padding-top: 3.5rem; }</style>")
+    st.html(
+        "<style>.stMainBlockContainer { padding-top: 3.5rem; }</style>"
+    )
 
     title_col = st.columns([1.0], vertical_alignment="center")
     with title_col[0]:
@@ -913,7 +929,9 @@ def main():
     render_live_monitoring()
 
     st.divider()
-    st.caption("**Dirección de Planeación** | Subdirección de Tecnología e Innovación")
+    st.caption(
+        "**Dirección de Planeación** | Subdirección de Tecnología e Innovación"
+    )
 
 
 if __name__ == "__main__":
