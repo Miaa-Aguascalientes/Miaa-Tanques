@@ -1,4 +1,4 @@
-"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Definitiva vfitagnumhistory)"""
+"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Final con JOIN Nativo)"""
 
 from dataclasses import dataclass
 from html import escape
@@ -90,6 +90,7 @@ def fetch_tank_readings(
 
     tag_to_tank = {v: k for k, v in scada_tags.items()}
     tags_list = list(scada_tags.values())
+    tags_string = "','".join(tags_list)
 
     connection = pymysql.connect(
         host=config.host,
@@ -101,44 +102,34 @@ def fetch_tank_readings(
         cursorclass=pymysql.cursors.DictCursor,
     )
     try:
-        # Paso 1: Obtenemos los GATEID correspondientes a los nombres de las etiquetas
-        tags_string = "','".join(tags_list)
-        ref_query = f"SELECT GATEID, NAME FROM VfiTagRef WHERE NAME IN ('{tags_string}');"
+        start_ts = int(start_date.timestamp() * 1000)
+        end_ts = int(end_date.timestamp() * 1000)
 
-        with connection.cursor() as cursor:
-            cursor.execute(ref_query)
-            tag_refs = cursor.fetchall()
-
-        if not tag_refs:
-            return pd.DataFrame(columns=["timestamp", "tank_id", "level_m"])
-
-        gateid_to_name = {row["GATEID"]: row["NAME"] for row in tag_refs}
-        gateids = list(gateid_to_name.keys())
-        gateids_str = ",".join([str(g) for g in gateids])
-
-        # Paso 2: Consultamos la tabla histórica correcta (vfitagnumhistory)
-        history_query = f"""
+        # Consulta SQL limpia haciendo JOIN directo entre vfitagnumhistory y VfiTagRef
+        query = f"""
             SELECT 
-                FROM_UNIXTIME(Time / 1000) AS timestamp,
-                TagNum AS gateid,
-                Value AS level_m
-            FROM vfitagnumhistory
-            WHERE TagNum IN ({gateids_str})
-              AND Time >= UNIX_TIMESTAMP(%s) * 1000
-              AND Time <= UNIX_TIMESTAMP(%s) * 1000
-            ORDER BY Time ASC;
+                h.TIME AS raw_time,
+                t.NAME AS tag_name,
+                h.VALUE AS level_m
+            FROM vfitagnumhistory h
+            JOIN VfiTagRef t ON h.GATEID = t.GATEID
+            WHERE t.NAME IN ('{tags_string}')
+              AND h.TIME >= {start_ts}
+              AND h.TIME <= {end_ts}
+            ORDER BY h.TIME ASC;
         """
 
         with connection.cursor() as cursor:
-            cursor.execute(history_query, (start_date, end_date))
+            cursor.execute(query)
             result = cursor.fetchall()
 
         if not result:
             return pd.DataFrame(columns=["timestamp", "tank_id", "level_m"])
 
         df = pd.DataFrame(result)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
-        df["tag_name"] = df["gateid"].map(gateid_to_name)
+        
+        # Conversión del timestamp en milisegundos a datetime
+        df["timestamp"] = pd.to_datetime(df["raw_time"], unit="ms", errors="coerce")
         df["tank_id"] = df["tag_name"].map(tag_to_tank)
 
         return df[["timestamp", "tank_id", "level_m"]].dropna(subset=["tank_id"])
