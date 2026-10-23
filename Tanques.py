@@ -98,7 +98,7 @@ def fetch_tank_readings(
             FROM_UNIXTIME(h.Time / 1000) AS timestamp,
             t.NAME AS tag_name,
             h.Value AS level_m
-        FROM 12vfitagnumhistory h
+        FROM vfitagnumhistory h
         JOIN VfiTagRef t ON h.TagNum = t.GATEID
         WHERE t.NAME IN ('{tags_string}')
           AND h.Time >= UNIX_TIMESTAMP(%s) * 1000
