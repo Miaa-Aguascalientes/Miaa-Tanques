@@ -1,4 +1,4 @@
-"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Unificada con st.secrets)"""
+"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Corregida y Robusta)"""
 
 from dataclasses import dataclass
 from html import escape
@@ -20,8 +20,6 @@ DEFAULT_LOAD_DAYS = 30
 MAX_QUERY_DAYS = 90
 CACHE_TTL_SECONDS = 300
 CACHE_MAX_ENTRIES = 8
-AUTO_REFRESH_SECONDS = 300
-OVERLAP_HOURS = 2
 CATEGORY_COLUMN = "Distrito"
 MAX_AGE_MINUTES = 120
 EXPECTED_INTERVAL_MINUTES = 5
@@ -41,11 +39,8 @@ class MySQLConfig:
 
     @classmethod
     def from_secrets(cls, secret_key: str) -> "MySQLConfig":
-        """Carga las credenciales desde st.secrets dinámicamente."""
         if secret_key not in st.secrets:
-            raise KeyError(
-                f"No se encontró la sección [{secret_key}] en st.secrets."
-            )
+            raise KeyError(f"No se encontró la sección [{secret_key}] en st.secrets.")
         sec = st.secrets[secret_key]
         return cls(
             host=sec["host"],
@@ -64,7 +59,6 @@ class MySQLConfig:
 def fetch_mysql_table(
     config: MySQLConfig, table: str, columns: list[str] | None = None
 ) -> pd.DataFrame:
-    """Extrae una tabla completa de MySQL."""
     cols = ", ".join([f"`{c}`" for c in columns]) if columns else "*"
     query = f"SELECT {cols} FROM `{table}`;"
     connection = pymysql.connect(
@@ -91,7 +85,6 @@ def fetch_tank_readings(
     start_date: pd.Timestamp,
     end_date: pd.Timestamp,
 ) -> pd.DataFrame:
-    """Consulta las lecturas de nivel de los tanques desde la base de datos SCADA."""
     if not scada_tags:
         return pd.DataFrame(columns=["timestamp", "tank_id", "level_m"])
 
@@ -137,14 +130,13 @@ def fetch_tank_readings(
         connection.close()
 
 
+@st.cache_data(ttl=CACHE_TTL_SECONDS, max_entries=CACHE_MAX_ENTRIES, show_spinner=False)
 def get_tank_level_data(
-    hyd_db_config: MySQLConfig,
-    scada_config: MySQLConfig,
-    start_date: pd.Timestamp,
-    end_date: pd.Timestamp,
-    ntanks: int | None = None,
+    start_date: pd.Timestamp, end_date: pd.Timestamp, ntanks: int | None = None
 ):
-    """Devuelve las lecturas SCADA y el catálogo de tanques seleccionados."""
+    hyd_db_config = MySQLConfig.from_secrets("HYD_DB")
+    scada_config = MySQLConfig.from_secrets("SCADA_DB")
+
     df = fetch_mysql_table(config=hyd_db_config, table="Diccionario_de_tanques")
     df_selected = df.copy()
 
@@ -198,7 +190,7 @@ def get_tank_level_data(
 
 
 # =====================================================================
-# ESTILOS CSS INCORPORADOS
+# ESTILOS CSS
 # =====================================================================
 
 CUSTOM_CSS = """
@@ -250,7 +242,7 @@ CUSTOM_CSS = """
     padding-top: 18px;
     border-top: 1px solid #35485f;
 }
-.tm-highlights span, .tm-tower span {
+.tm-highlights span {
     color: #b9cce0;
     font-size: 14px;
 }
@@ -349,10 +341,6 @@ CUSTOM_CSS = """
 }
 </style>
 """
-
-# =====================================================================
-# COMPONENTES Y LÓGICA DE VISUALIZACIÓN
-# =====================================================================
 
 LEVEL_CHART_STYLE = {
     "template": "plotly_dark",
@@ -711,7 +699,7 @@ def _render_tank(
         figure = _build_level_chart(data, tank, start, end, gap_minutes)
         st.plotly_chart(
             figure,
-            width="stretch",
+            use_container_width=True,
             theme=None,
             key=key,
             config={"displaylogo": False, "displayModeBar": "hover"},
@@ -813,102 +801,8 @@ def render_monitoring(
 
 
 # =====================================================================
-# EJECUCIÓN PRINCIPAL Y CACHÉ (app.py)
+# EJECUCIÓN PRINCIPAL
 # =====================================================================
-
-
-@st.cache_data(
-    ttl=CACHE_TTL_SECONDS, max_entries=CACHE_MAX_ENTRIES, show_spinner=False
-)
-def load_cached_data(
-    start_date: pd.Timestamp, end_date: pd.Timestamp, ntanks: int | None
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    # Lectura dinámica de secretos
-    scada_cfg = MySQLConfig.from_secrets("SCADA_DB")
-    hyd_cfg = MySQLConfig.from_secrets("HYD_DB")
-
-    return get_tank_level_data(
-        hyd_db_config=hyd_cfg,
-        scada_config=scada_cfg,
-        start_date=start_date,
-        end_date=end_date,
-        ntanks=ntanks,
-    )
-
-
-@st.fragment(run_every=AUTO_REFRESH_SECONDS)
-def render_live_monitoring():
-    now = pd.Timestamp.now(tz=TIMEZONE).tz_localize(None)
-    cutoff = now.floor("5min")
-
-    dataset = st.session_state.get(DATA_KEY)
-    attempt_key = f"{DATA_KEY}_last_attempt"
-
-    should_load = st.session_state.get(attempt_key) != cutoff and (
-        dataset is None or cutoff > dataset["loaded_end"]
-    )
-
-    if should_load:
-        st.session_state[attempt_key] = cutoff
-        try:
-            window_start = cutoff - pd.Timedelta(days=DEFAULT_LOAD_DAYS)
-            query_start = (
-                window_start
-                if dataset is None
-                else max(
-                    window_start,
-                    dataset["loaded_end"] - pd.Timedelta(hours=OVERLAP_HOURS),
-                )
-            )
-
-            with st.spinner("Cargando lecturas..."):
-                new_readings, tanks = load_cached_data(
-                    query_start, cutoff, None
-                )
-
-                if dataset is None:
-                    readings = new_readings.copy()
-                elif new_readings.empty:
-                    readings = dataset["readings"].copy()
-                else:
-                    readings = pd.concat(
-                        [dataset["readings"], new_readings], ignore_index=True
-                    )
-
-                readings["timestamp"] = pd.to_datetime(
-                    readings["timestamp"], errors="coerce"
-                )
-                readings["tank_id"] = readings["tank_id"].astype("string").str.strip()
-
-                readings = (
-                    readings.loc[readings["timestamp"].between(window_start, cutoff)]
-                    .drop_duplicates(["tank_id", "timestamp"], keep="last")
-                    .sort_values(["tank_id", "timestamp"])
-                    .reset_index(drop=True)
-                )
-
-            dataset = {
-                "readings": readings,
-                "tanks": tanks,
-                "loaded_start": window_start,
-                "loaded_end": cutoff,
-            }
-            st.session_state[DATA_KEY] = dataset
-            st.session_state.pop(f"{DATA_KEY}_error", None)
-        except Exception:
-            LOGGER.exception("Error al actualizar datos de tanques.")
-            st.session_state[f"{DATA_KEY}_error"] = "Error al consultar lecturas."
-
-    if dataset is None:
-        return
-
-    render_monitoring(
-        readings=dataset["readings"],
-        tanks=dataset["tanks"],
-        timezone=TIMEZONE,
-        available_start=dataset["loaded_start"],
-        available_end=pd.Timestamp.now(tz=TIMEZONE).tz_localize(None),
-    )
 
 
 def main():
@@ -918,15 +812,32 @@ def main():
         layout="wide",
     )
 
-    st.html(
-        "<style>.stMainBlockContainer { padding-top: 3.5rem; }</style>"
-    )
+    st.html("<style>.stMainBlockContainer { padding-top: 3.5rem; }</style>")
 
     title_col = st.columns([1.0], vertical_alignment="center")
     with title_col[0]:
         st.header("Monitoreo de Tanques de Regulación - MIAA")
 
-    render_live_monitoring()
+    now = pd.Timestamp.now(tz=TIMEZONE).tz_localize(None)
+    cutoff = now.floor("5min")
+    window_start = cutoff - pd.Timedelta(days=DEFAULT_LOAD_DAYS)
+
+    try:
+        with st.spinner("Cargando lecturas y catálogo de tanques..."):
+            readings, tanks = get_tank_level_data(
+                start_date=window_start, end_date=cutoff, ntanks=None
+            )
+
+        render_monitoring(
+            readings=readings,
+            tanks=tanks,
+            timezone=TIMEZONE,
+            available_start=window_start,
+            available_end=cutoff,
+        )
+    except Exception as e:
+        LOGGER.exception("Error crítico al cargar los datos.")
+        st.error(f"Error al conectar o consultar la base de datos: {e}")
 
     st.divider()
     st.caption(
