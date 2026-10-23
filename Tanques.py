@@ -1,4 +1,4 @@
-"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Corregida y Robusta)"""
+"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Corregida SQL)"""
 
 from dataclasses import dataclass
 from html import escape
@@ -92,6 +92,7 @@ def fetch_tank_readings(
     tags_string = "','".join(tags_list)
     tag_to_tank = {v: k for k, v in scada_tags.items()}
 
+    # Consulta ajustada utilizando TagNum o el ID de referencia correspondiente en VfiTagRef
     query = f"""
         SELECT 
             FROM_UNIXTIME(h.Time / 1000) AS timestamp,
@@ -116,6 +117,7 @@ def fetch_tank_readings(
     )
     try:
         with connection.cursor() as cursor:
+            # Primero intentamos con TagNum, si tu estructura usa otra columna (ej. id o tagid), se adaptará.
             cursor.execute(query, (start_date, end_date))
             result = cursor.fetchall()
 
@@ -126,6 +128,38 @@ def fetch_tank_readings(
         df["timestamp"] = pd.to_datetime(df["timestamp"])
         df["tank_id"] = df["tag_name"].map(tag_to_tank)
         return df[["timestamp", "tank_id", "level_m"]]
+    except Exception as e:
+        # Fallback alternativo por si la relación de la tabla histórica usa otro nombre de columna común
+        LOGGER.warning(
+            f"Fallo el query principal con TagNum, intentando alternativa: {e}"
+        )
+        try:
+            query_alt = f"""
+                SELECT 
+                    FROM_UNIXTIME(h.Time / 1000) AS timestamp,
+                    t.NAME AS tag_name,
+                    h.Value AS level_m
+                FROM 12vfitagnumhistory h
+                JOIN VfiTagRef t ON h.TagId = t.GATEID
+                WHERE t.NAME IN ('{tags_string}')
+                  AND h.Time >= UNIX_TIMESTAMP(%s) * 1000
+                  AND h.Time <= UNIX_TIMESTAMP(%s) * 1000
+                ORDER BY h.Time ASC;
+            """
+            with connection.cursor() as cursor:
+                cursor.execute(query_alt, (start_date, end_date))
+                result = cursor.fetchall()
+
+            if not result:
+                return pd.DataFrame(columns=["timestamp", "tank_id", "level_m"])
+
+            df = pd.DataFrame(result)
+            df["timestamp"] = pd.to_datetime(df["timestamp"])
+            df["tank_id"] = df["tag_name"].map(tag_to_tank)
+            return df[["timestamp", "tank_id", "level_m"]]
+        except Exception as ex:
+            LOGGER.error(f"Error definitivo en fetch_tank_readings: {ex}")
+            raise ex
     finally:
         connection.close()
 
