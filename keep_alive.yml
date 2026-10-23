@@ -1,0 +1,50 @@
+name: Despertar Real Lecturas HES
+
+on:
+  schedule:
+    - cron: '*/20 * * * *'
+  workflow_dispatch:
+
+jobs:
+  wake-up:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24' # <--- Actualizamos a la versión 24 para quitar el aviso
+
+      - name: Install Playwright
+        run: |
+          npm init -y
+          npm install playwright
+          npx playwright install chromium --with-deps
+
+      - name: Navegar a la App (Modo Invisible)
+        run: |
+          node -e "
+          const { chromium } = require('playwright');
+          (async () => {
+            try {
+              const browser = await chromium.launch({ headless: true });
+              const page = await browser.newPage();
+              console.log('Iniciando navegación...');
+              await page.goto('https://lecturas-hes.streamlit.app/', { 
+                waitUntil: 'networkidle', 
+                timeout: 60000 
+              });
+              console.log('App cargada. Esperando validación...');
+              await new Promise(r => setTimeout(r, 10000));
+              await browser.close();
+              console.log('✅ Aplicación despertada con éxito.');
+            } catch (err) {
+              console.error('❌ Error:', err);
+              process.exit(1);
+            }
+          })();
+          "
