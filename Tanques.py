@@ -1,4 +1,4 @@
-"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión Final con JOIN Nativo)"""
+"""Tablero de Monitoreo de Tanques de Regulación - MIAA (Versión con Nuevo Estilo CSS)"""
 
 from dataclasses import dataclass
 from html import escape
@@ -105,7 +105,6 @@ def fetch_tank_readings(
         start_ts = int(start_date.timestamp() * 1000)
         end_ts = int(end_date.timestamp() * 1000)
 
-        # Consulta SQL limpia haciendo JOIN directo entre vfitagnumhistory y VfiTagRef
         query = f"""
             SELECT 
                 h.TIME AS raw_time,
@@ -127,8 +126,6 @@ def fetch_tank_readings(
             return pd.DataFrame(columns=["timestamp", "tank_id", "level_m"])
 
         df = pd.DataFrame(result)
-        
-        # Conversión del timestamp en milisegundos a datetime
         df["timestamp"] = pd.to_datetime(df["raw_time"], unit="ms", errors="coerce")
         df["tank_id"] = df["tag_name"].map(tag_to_tank)
 
@@ -198,168 +195,91 @@ def get_tank_level_data(
 
 
 # =====================================================================
-# ESTILOS CSS
+# ESTILOS CSS PERSONALIZADOS
 # =====================================================================
 
 CUSTOM_CSS = """
 <style>
-.tm-summary {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 24px;
-    padding: 20px;
-    border: 1px solid #35485f;
+:root { color-scheme: dark; }
+.stApp { background: #081421; color: #e4edf7; }
+header[data-testid="stHeader"] { background: #081421; }
+[data-testid="stSidebar"] { background: #0c1c2c; border-right: 1px solid #203348; }
+.block-container { padding: 3.5rem 2rem 1.4rem; max-width: 1920px; }
+
+h1 { font-size: 1.9rem !important; font-weight: 650 !important; letter-spacing: -0.045rem; padding-top: .2rem !important; color: #e4edf7; }
+h3 { font-size: 1.03rem !important; font-weight: 600 !important; padding: .1rem 0 !important; color: #e4edf7; }
+
+[data-testid="stVerticalBlockBorderWrapper"] > div { border-color: #22384d !important; border-radius: 10px !important; }
+[data-testid="stCaptionContainer"] { color: #91a8bf; font-size: .78rem; }
+
+.dma-eyebrow { color: #8fa9c2; letter-spacing: .15em; font-size: .67rem; font-weight: 600; text-transform: uppercase; }
+.dma-tab { color: #63b9df; border-bottom: 2px solid #4caacd; width: 95px; padding: 0 0 .5rem .15rem; font-size: .88rem; margin-bottom: .4rem; }
+
+/* Tarjetas nativas KPI */
+[class*="st-key-dma_kpi_"] {
+    background: linear-gradient(135deg, #122c42 0%, #0b1c2d 100%);
+    border: 1px solid #27445e !important;
+    border-top: 2px solid #47afd0 !important;
+    border-radius: 10px;
+    gap: .3rem;
+    min-height: 132px;
+}
+[class*="st-key-dma_kpi_"] [data-testid="stMarkdownContainer"] p { font-size: .85rem; color: #c4d8e9; margin: 0; }
+[class*="st-key-dma_kpi_"] [data-testid="stCaptionContainer"] p { font-size: .69rem; color: #91a8bf; margin: 0; }
+
+.dma-kpi-value { color: #f0f7ff; font-size: clamp(1.3rem, 1.65vw, 1.95rem); font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; margin: 2px 0 4px; }
+.dma-kpi-value span, .dma-critical-value span { color: #9eb7cd; font-size: .75rem; font-weight: 400; }
+.dma-muted { color: #9ab0c7; font-size: .69rem; line-height: 1.55; }
+
+.dma-critical {
+    border: 1px solid #244356;
+    border-left: 3px solid var(--signal-color, #47afd0);
+    background: linear-gradient(120deg, #102b3d, #0c1c2d);
     border-radius: 8px;
-    background-color: rgba(15, 23, 42, 0.4);
+    padding: 12px 14px;
+    font-size: .8rem;
 }
-.tm-kpis {
-    display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 1rem;
-    align-items: start;
-}
-.tm-kpis>div, .tm-highlights>div {
-    min-width: 0;
-}
-.tm-metric span {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    color: #b9cce0;
-    font-size: 14px;
-}
-.tm-metric strong {
-    display: block;
-    margin-top: 5px;
-    color: #edf3fb;
-    font-variant-numeric: tabular-nums;
-    font-size: 16px;
-}
-.tm-kpis .tm-metric span {
-    min-height: 38px;
-}
-.tm-kpis .tm-metric strong {
-    font-size: 24px;
-    font-weight: 600;
-}
-.tm-highlights {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 1rem;
-    margin-top: 1rem;
-    padding-top: 18px;
-    border-top: 1px solid #35485f;
-}
-.tm-highlights span {
-    color: #b9cce0;
-    font-size: 14px;
-}
-.tm-highlights p {
-    margin: 7px 0 0;
-    color: #edf3fb;
-    font-size: 16px;
-    font-weight: 500;
-}
-.tm-pill {
-    display: inline-block;
-    margin-left: 6px;
-    padding: 2px 9px;
-    border-radius: 12px;
-    background: #284965;
-    color: #d1edff;
-    font-size: 14px;
-    font-weight: 500;
-}
-.tm-detail-heading {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: 12px;
-    margin: 12px 0 8px;
-}
-.tm-detail-heading h3 {
-    margin: 0;
-    color: #edf3fb;
-    font-size: 21px;
-}
-.tm-legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 18px;
-    color: #b9cce0;
-    font-size: 12px;
-}
-.tm-legend span {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-}
-.tm-legend i {
-    display: inline-block;
-    width: 25px;
-    border-top: 2px solid;
-}
-.tm-legend .tm-level {
-    border-color: #71c9fa;
-}
-.tm-legend .tm-max {
-    border-color: #dacb55;
-    border-top-style: dashed;
-}
-.tm-card-title {
-    color: #edf3fb;
-    font-size: 18px;
-    font-weight: 550;
-    overflow-wrap: anywhere;
-}
-.tm-card-title b {
-    margin-right: 8px;
-    color: #71c9fa;
-}
-.tm-card-metrics {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    align-items: start;
-    gap: 8px;
-    margin: 12px 0 4px;
-}
-.tm-card-metrics .tm-metric {
-    display: grid;
-    grid-template-rows: 30px auto;
-    min-width: 0;
-}
-.tm-card-metrics .tm-metric span {
-    min-height: 0;
-    align-items: center;
-    font-size: 13px;
-    line-height: 16px;
-}
-.tm-card-metrics .tm-metric strong {
-    margin-top: 5px;
-    font-size: 14px;
-    line-height: 18px;
-    font-weight: 550;
-}
-@media (max-width: 1000px) {
-    .tm-summary { grid-template-columns: 1fr; }
-}
-@media (max-width: 600px) {
-    .tm-kpis, .tm-highlights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.dma-critical-title { color: #d6e6f4; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.dma-signal-dot { background: var(--signal-color, #47afd0); width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.dma-critical-value { font-size: 1.8rem; margin: 4px 0; font-weight: 650; color: var(--signal-color, #47afd0); font-variant-numeric: tabular-nums; }
+
+.dma-condition { display: inline-block; padding: 3px 8px; margin-bottom: 7px; border-radius: 5px; font-size: .7rem; }
+.condition-ok { color: #73e3c0; background: #143d36; }
+.condition-warn { color: #ffd18a; background: #493923; }
+.condition-neutral { color: #b1c3d7; background: #203244; }
+
+.st-key-dma_operational table { width: 100%; border-collapse: collapse; }
+.st-key-dma_operational td { border-bottom: 1px solid #23374a; padding: .52rem .35rem; vertical-align: middle; font-size: .8rem; }
+.st-key-dma_operational td:first-child { width: 62%; color: #c1d3e5; }
+.st-key-dma_operational td:last-child { color: #eef6ff; font-variant-numeric: tabular-nums; }
+.st-key-dma_operational td p { font-size: .8rem; margin: 0; }
+
+iframe { border-radius: 8px; }
+
+.tm-card-title { color: #edf3fb; font-size: 1.05rem; font-weight: 600; overflow-wrap: anywhere; }
+.tm-card-title b { margin-right: 8px; color: #63b9df; }
+.tm-card-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); align-items: start; gap: 8px; margin: 10px 0 4px; }
+.tm-card-metrics .tm-metric { display: grid; grid-template-rows: auto auto; min-width: 0; }
+.tm-card-metrics .tm-metric span { color: #8fa9c2; font-size: .75rem; line-height: 1.2; }
+.tm-card-metrics .tm-metric strong { color: #f0f7ff; font-size: .88rem; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 3px; }
+
+@media (max-width: 900px) {
+    .block-container { padding-left: 1rem; padding-right: 1rem; }
+    [class*="st-key-dma_kpi_"] { min-height: 112px; }
 }
 </style>
 """
 
 LEVEL_CHART_STYLE = {
     "template": "plotly_dark",
-    "height": 235,
-    "line_color": "#71C9FA",
-    "fill_color": "rgba(113, 201, 250, 0.25)",
-    "max_color": "#DACB55",
-    "text_color": "#D5E1EF",
-    "grid_color": "rgba(135, 160, 185, 0.15)",
+    "height": 220,
+    "line_color": "#63b9df",
+    "fill_color": "rgba(99, 185, 223, 0.2)",
+    "max_color": "#ffd18a",
+    "text_color": "#e4edf7",
+    "grid_color": "rgba(35, 55, 74, 0.6)",
     "line_width": 1.6,
-    "font_size": 12,
+    "font_size": 11,
 }
 
 
@@ -367,25 +287,6 @@ def _number(value: float, unit: str = "", decimals: int = 0) -> str:
     if pd.isna(value):
         return "—"
     return f"{value:,.{decimals}f}{unit}"
-
-
-def _metric_html(label: str, value: str) -> str:
-    return (
-        '<div class="tm-metric">'
-        f"<span>{escape(label)}</span>"
-        f"<strong>{escape(value)}</strong>"
-        "</div>"
-    )
-
-
-def _metric_html_inline(label: str, value: str) -> str:
-    return (
-        '<div class="tm-metric" style="display:flex; flex-direction:row; '
-        'align-items:baseline; justify-content:flex-start; gap:0.5rem;">'
-        f'<span style="white-space:nowrap; font-size:12px;">{escape(label)}</span>'
-        f'<strong style="white-space:nowrap; font-size:14px;">{escape(value)}</strong>'
-        "</div>"
-    )
 
 
 def _prepare_data(readings: pd.DataFrame, tanks: pd.DataFrame, timezone: str):
@@ -568,49 +469,24 @@ def _render_summary(summary: pd.DataFrame, end: pd.Timestamp):
         else np.nan
     )
 
-    metric_items = [
-        ("Tanques totales", str(len(summary))),
-        ("Tanques con comunicación < 5%", str(insufficient_count)),
-        ("% de comunicación", _number(communication_pct, " %", 1)),
-        ("Capacidad de regulación", _number(capacity, " m³")),
-        ("Volumen de regulación", _number(volume, " m³")),
-        ("% almacenamiento", _number(percent, " %", 1)),
+    kpis = [
+        ("TANQUES TOTALES", str(len(summary)), "Registrados", "dma_kpi_1"),
+        ("COMUNICACIÓN BLA<5%", str(insufficient_count), "Sin reporte activo", "dma_kpi_2"),
+        ("% COMUNICACIÓN", _number(communication_pct, " %", 1), "Promedio global", "dma_kpi_3"),
+        ("CAPACIDAD REGULACIÓN", _number(capacity, " m³"), "Capacidad instalada", "dma_kpi_4"),
+        ("VOLUMEN REGULACIÓN", _number(volume, " m³"), "Volumen actual", "dma_kpi_5"),
+        ("% ALMACENAMIENTO", _number(percent, " %", 1), "Nivel de reserva", "dma_kpi_6"),
     ]
 
-    metrics = "".join(
-        '<div style="min-width:0;">' + _metric_html(l, v) + "</div>"
-        for l, v in metric_items
-    )
+    cols = st.columns(6)
+    for col, (title, value, caption, key_name) in zip(cols, kpis):
+        with col:
+            with st.container(border=True, key=key_name):
+                st.html(f'<div class="dma-eyebrow">{escape(title)}</div>')
+                st.html(f'<div class="dma-kpi-value">{escape(value)}</div>')
+                st.caption(caption)
 
-    storage = summary["storage_pct"].dropna()
-    communication = summary["communication_pct"].dropna()
-
-    highlight_items = [
-        ("Mayor almacenamiento", storage, True),
-        ("Menor almacenamiento", storage, False),
-        ("Mayor comunicación", communication, True),
-        ("Menor comunicación", communication, False),
-    ]
-
-    highlights = []
-    for label, values, find_max in highlight_items:
-        if values.empty:
-            tank_id, value = "—", "—"
-        else:
-            tank_id = values.idxmax() if find_max else values.idxmin()
-            value = _number(values.loc[tank_id], " %", 1)
-        highlights.append(
-            f"<div><span>{escape(label)}</span><p>{escape(str(tank_id))} "
-            f'<b class="tm-pill">{escape(value)}</b></p></div>'
-        )
-
-    st.html(
-        '<section class="tm-summary">'
-        f'<div class="tm-kpis">{metrics}</div>'
-        f'<div class="tm-highlights">{"".join(highlights)}</div>'
-        "</section>"
-    )
-    st.caption(f"Corte: {end:%d/%m/%Y %H:%M}")
+    st.caption(f"Corte de información: {end:%d/%m/%Y %H:%M}")
 
 
 def _build_level_chart(
@@ -664,13 +540,22 @@ def _build_level_chart(
         yaxis_title="m",
         template=settings["template"],
         height=settings["height"],
-        margin={"l": 35, "r": 10, "t": 8, "b": 30},
+        margin={"l": 30, "r": 10, "t": 8, "b": 25},
         plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
         font={"color": settings["text_color"], "size": settings["font_size"]},
         showlegend=False,
         hovermode="closest",
     )
-    fig.update_xaxes(range=[start, end])
+    fig.update_xaxes(
+        range=[start, end],
+        gridcolor=settings["grid_color"],
+        zerolinecolor=settings["grid_color"],
+    )
+    fig.update_yaxes(
+        gridcolor=settings["grid_color"],
+        zerolinecolor=settings["grid_color"],
+    )
     return fig
 
 
@@ -682,26 +567,23 @@ def _render_tank(
     gap_minutes: float,
     key: str,
 ):
-    metric_items = [
-        ("Máx. periodo", "max_period", " m", 2),
-        ("Mín. periodo", "min_period", " m", 2),
-        ("% comunicación", "communication_pct", " %", 1),
-        ("% almacenado", "storage_pct", " %", 0),
-    ]
-
-    metrics = "".join(
-        _metric_html(l, _number(tank[c], u, d)) for l, c, u, d in metric_items
-    )
     display_name = str(tank["name"]).strip()
     tank_id = str(tank.name)
 
     if display_name.startswith(tank_id):
         display_name = display_name[len(tank_id) :].lstrip(" -")
 
-    st.html(
-        f'<div class="tm-card-title"><b>{escape(tank_id)}</b> {escape(display_name)}</div>'
-        f'<div class="tm-card-metrics">{metrics}</div>'
-    )
+    st.html(f'<div class="tm-card-title"><b>{escape(tank_id)}</b> {escape(display_name)}</div>')
+
+    metrics_html = f"""
+    <div class="tm-card-metrics">
+        <div class="tm-metric"><span>Máx. per.</span><strong>{escape(_number(tank['max_period'], ' m', 2))}</strong></div>
+        <div class="tm-metric"><span>Mín. per.</span><strong>{escape(_number(tank['min_period'], ' m', 2))}</strong></div>
+        <div class="tm-metric"><span>% Com.</span><strong>{escape(_number(tank['communication_pct'], ' %', 1))}</strong></div>
+        <div class="tm-metric"><span>% Alm.</span><strong>{escape(_number(tank['storage_pct'], ' %', 0))}</strong></div>
+    </div>
+    """
+    st.html(metrics_html)
 
     if data["level_m"].notna().any():
         figure = _build_level_chart(data, tank, start, end, gap_minutes)
@@ -717,23 +599,21 @@ def _render_tank(
 
     timestamp = tank["timestamp"]
     if pd.notna(timestamp):
-        elapsed_minutes = max(
-            0, int((end - timestamp).total_seconds() / 60 + 0.5)
-        )
+        elapsed_minutes = max(0, int((end - timestamp).total_seconds() / 60 + 0.5))
         days, rem = divmod(elapsed_minutes, 1440)
         hours, minutes = divmod(rem, 60)
         parts = []
         if days:
-            parts.append(f"{days} días")
+            parts.append(f"{days}d")
         if hours:
-            parts.append(f"{hours} h")
+            parts.append(f"{hours}h")
         if minutes or not parts:
-            parts.append(f"{minutes} min")
+            parts.append(f"{minutes}m")
         elapsed_text = " ".join(parts)
     else:
         elapsed_text = "Sin datos"
 
-    st.html(_metric_html_inline("Antigüedad de lectura", elapsed_text))
+    st.caption(f"Antigüedad de lectura: {elapsed_text}")
 
 
 def render_monitoring(
@@ -776,11 +656,7 @@ def render_monitoring(
         )
         _render_summary(summary, end)
 
-        st.html(
-            '<div class="tm-detail-heading"><h3>Detalle por tanque</h3>'
-            '<div class="tm-legend"><span><i class="tm-level"></i>Nivel</span>'
-            '<span><i class="tm-max"></i>Límite máximo</span></div></div>'
-        )
+        st.markdown("### Detalle por tanque")
 
         tank_ids = catalog.index.tolist()
         for offset in range(0, len(tank_ids), columns):
@@ -815,16 +691,12 @@ def render_monitoring(
 
 def main():
     st.set_page_config(
-        page_title="Monitoreo de tanques",
+        page_title="Monitoreo de Tanques - MIAA",
         page_icon=":material/account_tree:",
         layout="wide",
     )
 
-    st.html("<style>.stMainBlockContainer { padding-top: 3.5rem; }</style>")
-
-    title_col = st.columns([1.0], vertical_alignment="center")
-    with title_col[0]:
-        st.header("Monitoreo de Tanques de Regulación - MIAA")
+    st.title("Monitoreo de Tanques de Regulación - MIAA")
 
     now = pd.Timestamp.now(tz=TIMEZONE).tz_localize(None)
     cutoff = now.floor("5min")
